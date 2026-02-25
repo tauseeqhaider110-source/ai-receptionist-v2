@@ -2,36 +2,42 @@ const nodemailer = require("nodemailer");
 require("dotenv").config();
 const express = require("express");
 const { VoiceResponse } = require("twilio").twiml;
-const OpenAI = require("openai");
 const twilio = require("twilio");
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 
-// Email transporter (Gmail)
+// --- Simple health route for browser ---
+app.get("/", (req, res) => {
+  res.send("AI Receptionist backend is running ✅");
+});
+
+// --- Email transporter (Gmail) ---
+// Currently not used on Render due to SMTP timeout issues,
+// but kept here in case you want to enable it locally.
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: "tauseeq.design@gmail.com",          // your Gmail (sender)
-    pass: "lwsk bezq skkv zzsa"                // your 16-char app password
+    user: process.env.GMAIL_USER, // e.g. tauseeq.design@gmail.com
+    pass: process.env.GMAIL_PASS // 16-char app password
   }
 });
 
-// Twilio client for WhatsApp
+// --- Twilio client for WhatsApp ---
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// Temporary storage for call data
+// Temporary storage for call data (per process)
 let callData = {};
 
 // WhatsApp notify helper
 async function notifyOnWhatsApp(text) {
   try {
     const msg = await twilioClient.messages.create({
-      from: process.env.TWILIO_WHATSAPP_FROM,  // e.g. whatsapp:+14155238886
-      to: process.env.TWILIO_WHATSAPP_TO,      // e.g. whatsapp:+923001234567
+      from: process.env.TWILIO_WHATSAPP_FROM, // e.g. whatsapp:+14155238886
+      to: process.env.TWILIO_WHATSAPP_TO, // e.g. whatsapp:+923001234567
       body: text
     });
     console.log("WhatsApp sent:", msg.sid);
@@ -49,10 +55,12 @@ app.post("/voice", (req, res) => {
       action: "/collect-name",
       method: "POST",
       speechTimeout: "auto",
-      // Name hints: your name, common Pakistani names, clinic
-      hints: "Tauseeq, Haider, Ali, Ahmad, Ahmed, Hamza, Ayesha, Aisha, Fatima, Usman, Lahore Smile Dental Clinic"
+      hints:
+        "Tauseeq, Haider, Ali, Ahmad, Ahmed, Hamza, Ayesha, Aisha, Fatima, Usman, Lahore Smile Dental Clinic"
     })
-    .say("Assalam o Alaikum. You have reached Lahore Smile Dental Clinic. Please say your full name slowly.");
+    .say(
+      "Assalam o Alaikum. You have reached Lahore Smile Dental Clinic. Please say your full name slowly."
+    );
 
   res.type("text/xml");
   res.send(twiml.toString());
@@ -68,10 +76,12 @@ app.post("/collect-name", (req, res) => {
       action: "/collect-service",
       method: "POST",
       speechTimeout: "auto",
-      // Service hints to help recognition
-      hints: "cleaning, filling, checkup, root canal, braces, scaling, Lahore"
+      hints:
+        "cleaning, filling, checkup, root canal, braces, scaling, Lahore"
     })
-    .say("Thank you. What dental service do you need? For example, cleaning, filling, or checkup?");
+    .say(
+      "Thank you. What dental service do you need? For example, cleaning, filling, or checkup?"
+    );
 
   res.type("text/xml");
   res.send(twiml.toString());
@@ -105,7 +115,9 @@ app.post("/collect-time", (req, res) => {
       method: "POST",
       speechTimeout: "auto"
     })
-    .say("Thank you. Finally, please say your phone number slowly so we can confirm your booking.");
+    .say(
+      "Thank you. Finally, please say your phone number slowly so we can confirm your booking."
+    );
 
   res.type("text/xml");
   res.send(twiml.toString());
@@ -119,7 +131,6 @@ app.post("/collect-phone", async (req, res) => {
     const appointmentTime = callData.appointmentTime || "Not provided";
     const phoneSpoken = req.body.SpeechResult || "Not provided";
 
-    // Save phone from speech
     callData.phone = phoneSpoken;
 
     const leadInfo = `
@@ -132,23 +143,16 @@ Service Needed: ${serviceNeeded}
 Preferred Appointment Time: ${appointmentTime}
     `;
 
-    // Send email
-    const mailOptions = {
-      from: '"AI Receptionist" <tauseeq.design@gmail.com>',
-      to: "tauseeqhaider110@gmail.com", // where you receive leads
-      subject: "New Dental Clinic Lead",
-      text: leadInfo
-    };
-
-    const info = await transporter.sendMail(mailOptions);
     console.log("New Lead:", leadInfo);
-    console.log("Email sent successfully:", info.messageId);
+    console.log("Skipping email on Render (SMTP timeout issue).");
 
-    // Send WhatsApp notification
+    // Send WhatsApp notification only
     await notifyOnWhatsApp(leadInfo);
 
     const twiml = new VoiceResponse();
-    twiml.say("Thank you. Your details have been saved. Our team will contact you shortly to confirm your appointment. Khuda Hafiz.");
+    twiml.say(
+      "Thank you. Your details have been saved. Our team will contact you shortly to confirm your appointment. Khuda Hafiz."
+    );
     twiml.hangup();
 
     res.type("text/xml");
@@ -157,7 +161,9 @@ Preferred Appointment Time: ${appointmentTime}
     console.error("Email or WhatsApp error:", error);
 
     const twiml = new VoiceResponse();
-    twiml.say("Sorry, there was a problem sending your details. Please try again later.");
+    twiml.say(
+      "Sorry, there was a problem sending your details. Please try again later."
+    );
     twiml.hangup();
 
     res.type("text/xml");
@@ -165,6 +171,8 @@ Preferred Appointment Time: ${appointmentTime}
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+// --- IMPORTANT: use Render port ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
